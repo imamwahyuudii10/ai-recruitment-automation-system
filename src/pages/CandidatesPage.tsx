@@ -11,7 +11,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   RecommendationBadge,
-  ScoreBadge,
   StatusBadge,
 } from "../components/ui/StatusBadge";
 import { getApplicants, getJobs } from "../services/dataService";
@@ -222,24 +221,31 @@ export function CandidatesPage() {
             <option value="ALL">
               All statuses
             </option>
+
             <option value="NEW">
               New
             </option>
+
             <option value="PROCESSED">
               Processed
             </option>
+
             <option value="AI_ANALYZED">
               AI Analyzed
             </option>
+
             <option value="PENDING_REVIEW">
               Pending Review
             </option>
+
             <option value="APPROVED">
               Approved
             </option>
+
             <option value="REJECTED">
               Rejected
             </option>
+
             <option value="NOT_QUALIFIED">
               Not Qualified
             </option>
@@ -255,12 +261,15 @@ export function CandidatesPage() {
             <option value="ALL">
               All AI recommendations
             </option>
+
             <option value="STRONG_MATCH">
               Strong Match
             </option>
+
             <option value="REVIEW">
               Review
             </option>
+
             <option value="NOT_QUALIFIED">
               Not Qualified
             </option>
@@ -364,8 +373,10 @@ export function CandidatesPage() {
                           </p>
                         </td>
 
+                        {/* COLORED AI MATCH */}
+
                         <td className="px-4 py-4">
-                          <ScoreBadge
+                          <MatchScoreBadge
                             score={
                               applicant.ai_match_score
                             }
@@ -471,6 +482,49 @@ export function CandidatesPage() {
   );
 }
 
+/* =====================================================
+   AI MATCH SCORE
+===================================================== */
+
+function MatchScoreBadge({
+  score,
+}: {
+  score: number | null;
+}) {
+  if (score == null) {
+    return (
+      <span className="inline-flex min-w-[62px] items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 font-mono text-xs font-semibold text-slate-400">
+        —
+      </span>
+    );
+  }
+
+  let classes = "";
+
+  if (score >= 80) {
+    classes =
+      "border-emerald-200 bg-emerald-50 text-emerald-700";
+  } else if (score >= 60) {
+    classes =
+      "border-amber-200 bg-amber-50 text-amber-700";
+  } else {
+    classes =
+      "border-rose-200 bg-rose-50 text-rose-700";
+  }
+
+  return (
+    <span
+      className={`inline-flex min-w-[62px] items-center justify-center rounded-lg border px-3 py-1.5 font-mono text-xs font-bold ${classes}`}
+    >
+      {score}%
+    </span>
+  );
+}
+
+/* =====================================================
+   HEADER METRIC
+===================================================== */
+
 function HeaderMetric({
   label,
   value,
@@ -491,6 +545,10 @@ function HeaderMetric({
   );
 }
 
+/* =====================================================
+   LOADING
+===================================================== */
+
 function CandidatesLoading() {
   return (
     <div className="space-y-6">
@@ -500,6 +558,10 @@ function CandidatesLoading() {
     </div>
   );
 }
+
+/* =====================================================
+   ERROR
+===================================================== */
 
 function CandidatesError({
   message,

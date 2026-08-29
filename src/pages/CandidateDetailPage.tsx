@@ -15,7 +15,6 @@ import {
 import { Button, Modal } from "../components/ui/Primitives";
 import {
   RecommendationBadge,
-  ScoreBadge,
   StatusBadge,
 } from "../components/ui/StatusBadge";
 import {
@@ -43,6 +42,7 @@ export function CandidateDetailPage() {
   >("overview");
 
   const [notes, setNotes] = useState("");
+
   const [decision, setDecision] =
     useState<RecruiterDecision | null>(null);
 
@@ -132,11 +132,6 @@ export function CandidateDetailPage() {
         notes,
       });
 
-      /*
-       * Setelah n8n selesai:
-       * ambil ulang kandidat dari Supabase.
-       * Jadi UI mengikuti kondisi database sebenarnya.
-       */
       const refreshedCandidate =
         await getApplicant(candidate.id);
 
@@ -148,10 +143,6 @@ export function CandidateDetailPage() {
             notes,
         );
       } else {
-        /*
-         * Fallback apabila data belum langsung
-         * tersedia setelah workflow selesai.
-         */
         setCandidate({
           ...candidate,
           status: decision,
@@ -204,7 +195,9 @@ export function CandidateDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* HERO */}
+      {/* =====================================================
+          HERO
+      ====================================================== */}
 
       <section className="relative overflow-hidden rounded-2xl border border-slate-800 bg-[#070b18] px-6 py-7 text-white shadow-xl shadow-slate-900/5 sm:px-7">
         <div className="pointer-events-none absolute inset-0 opacity-60 [background-image:radial-gradient(circle_at_12%_12%,rgba(124,58,237,0.30)_0,transparent_28%),radial-gradient(circle_at_88%_16%,rgba(14,165,233,0.18)_0,transparent_24%)]" />
@@ -249,13 +242,9 @@ export function CandidateDetailPage() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <HeaderMetric
+            <HeaderScoreMetric
               label="AI Match"
-              value={
-                candidate.ai_match_score != null
-                  ? `${candidate.ai_match_score}%`
-                  : "—"
-              }
+              score={candidate.ai_match_score}
             />
 
             <HeaderMetric
@@ -288,7 +277,9 @@ export function CandidateDetailPage() {
         </div>
       </section>
 
-      {/* MAIN */}
+      {/* =====================================================
+          MAIN
+      ====================================================== */}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-6">
@@ -367,7 +358,9 @@ export function CandidateDetailPage() {
           </section>
         </div>
 
-        {/* SIDEBAR */}
+        {/* =====================================================
+            SIDEBAR
+        ====================================================== */}
 
         <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
           {/* HUMAN REVIEW */}
@@ -410,7 +403,7 @@ export function CandidateDetailPage() {
                     Match score
                   </span>
 
-                  <ScoreBadge
+                  <MatchScoreBadge
                     score={
                       candidate.ai_match_score
                     }
@@ -507,7 +500,7 @@ export function CandidateDetailPage() {
             </div>
           </section>
 
-          {/* CONTROL */}
+          {/* DECISION CONTROL */}
 
           <section className="rounded-2xl border border-slate-200 bg-white p-5">
             <div className="flex items-center gap-2">
@@ -552,7 +545,9 @@ export function CandidateDetailPage() {
         </aside>
       </div>
 
-      {/* CONFIRMATION MODAL */}
+      {/* =====================================================
+          CONFIRM MODAL
+      ====================================================== */}
 
       <Modal
         open={!!decision}
@@ -597,6 +592,89 @@ export function CandidateDetailPage() {
           </Button>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/* =====================================================
+   COLORED AI SCORE
+===================================================== */
+
+function MatchScoreBadge({
+  score,
+}: {
+  score: number | null;
+}) {
+  if (score == null) {
+    return (
+      <span className="inline-flex min-w-[62px] items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 font-mono text-xs font-semibold text-slate-400">
+        —
+      </span>
+    );
+  }
+
+  let classes = "";
+
+  if (score >= 80) {
+    classes =
+      "border-emerald-200 bg-emerald-50 text-emerald-700";
+  } else if (score >= 60) {
+    classes =
+      "border-amber-200 bg-amber-50 text-amber-700";
+  } else {
+    classes =
+      "border-rose-200 bg-rose-50 text-rose-700";
+  }
+
+  return (
+    <span
+      className={`inline-flex min-w-[62px] items-center justify-center rounded-lg border px-3 py-1.5 font-mono text-xs font-bold ${classes}`}
+    >
+      {score}%
+    </span>
+  );
+}
+
+/* =====================================================
+   HEADER SCORE
+===================================================== */
+
+function HeaderScoreMetric({
+  label,
+  score,
+}: {
+  label: string;
+  score: number | null;
+}) {
+  let scoreClass =
+    "text-slate-400";
+
+  if (score != null) {
+    if (score >= 80) {
+      scoreClass =
+        "text-emerald-300";
+    } else if (score >= 60) {
+      scoreClass =
+        "text-amber-300";
+    } else {
+      scoreClass =
+        "text-rose-300";
+    }
+  }
+
+  return (
+    <div className="min-w-[130px] rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+        {label}
+      </p>
+
+      <p
+        className={`mt-1 font-mono text-lg font-bold ${scoreClass}`}
+      >
+        {score != null
+          ? `${score}%`
+          : "—"}
+      </p>
     </div>
   );
 }
@@ -816,16 +894,11 @@ function AIView({
             </p>
           </div>
 
-          <div className="rounded-xl border border-violet-100 bg-white px-5 py-4 text-center">
-            <p className="font-mono text-3xl font-semibold text-slate-950">
-              {candidate.ai_match_score ??
-                "—"}
-            </p>
-
-            <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-              Match Score
-            </p>
-          </div>
+          <LargeMatchScore
+            score={
+              candidate.ai_match_score
+            }
+          />
         </div>
       </section>
 
@@ -833,7 +906,8 @@ function AIView({
         <ListCard
           title="Detected Skills"
           items={
-            candidate.ai_skills ?? []
+            candidate.ai_skills ??
+            []
           }
           tone="neutral"
         />
@@ -850,7 +924,8 @@ function AIView({
         <ListCard
           title="Potential Gaps"
           items={
-            candidate.ai_gaps ?? []
+            candidate.ai_gaps ??
+            []
           }
           tone="warning"
         />
@@ -858,6 +933,48 @@ function AIView({
     </div>
   );
 }
+
+function LargeMatchScore({
+  score,
+}: {
+  score: number | null;
+}) {
+  let classes =
+    "border-slate-200 bg-white text-slate-400";
+
+  if (score != null) {
+    if (score >= 80) {
+      classes =
+        "border-emerald-200 bg-emerald-50 text-emerald-700";
+    } else if (score >= 60) {
+      classes =
+        "border-amber-200 bg-amber-50 text-amber-700";
+    } else {
+      classes =
+        "border-rose-200 bg-rose-50 text-rose-700";
+    }
+  }
+
+  return (
+    <div
+      className={`min-w-[140px] rounded-xl border px-5 py-4 text-center ${classes}`}
+    >
+      <p className="font-mono text-3xl font-bold">
+        {score != null
+          ? `${score}%`
+          : "—"}
+      </p>
+
+      <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] opacity-70">
+        Match Score
+      </p>
+    </div>
+  );
+}
+
+/* =====================================================
+   LIST CARD
+===================================================== */
 
 function ListCard({
   title,
