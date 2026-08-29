@@ -7,25 +7,69 @@ import {
   UserRoundCheck,
   Users,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { demoApplicants, demoJobs } from "../data/demo";
 import {
   RecommendationBadge,
   ScoreBadge,
   StatusBadge,
 } from "../components/ui/StatusBadge";
+import { getApplicants, getJobs } from "../services/dataService";
+import type { Applicant, Job } from "../types";
 
 export function CandidatesPage() {
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
+
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
   const [recommendation, setRecommendation] = useState("ALL");
 
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadCandidates() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const [applicantData, jobData] = await Promise.all([
+          getApplicants(),
+          getJobs(),
+        ]);
+
+        if (!active) return;
+
+        setApplicants(applicantData);
+        setJobs(jobData);
+      } catch (err) {
+        console.error("Candidates loading error:", err);
+
+        if (!active) return;
+
+        setError("Unable to load candidates from Supabase.");
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadCandidates();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
 
-    return demoApplicants.filter((applicant) => {
-      const job = demoJobs.find(
+    return applicants.filter((applicant) => {
+      const job = jobs.find(
         (item) => item.id === applicant.job_id,
       );
 
@@ -42,7 +86,8 @@ export function CandidatesPage() {
           .includes(term);
 
       const matchesStatus =
-        status === "ALL" || applicant.status === status;
+        status === "ALL" ||
+        applicant.status === status;
 
       const matchesRecommendation =
         recommendation === "ALL" ||
@@ -54,19 +99,34 @@ export function CandidatesPage() {
         matchesRecommendation
       );
     });
-  }, [query, status, recommendation]);
+  }, [
+    applicants,
+    jobs,
+    query,
+    status,
+    recommendation,
+  ]);
 
-  const pendingReview = demoApplicants.filter(
+  const pendingReview = applicants.filter(
     (item) => item.status === "PENDING_REVIEW",
   ).length;
 
-  const strongMatches = demoApplicants.filter(
-    (item) => item.ai_recommendation === "STRONG_MATCH",
+  const strongMatches = applicants.filter(
+    (item) =>
+      item.ai_recommendation === "STRONG_MATCH",
   ).length;
 
-  const analyzed = demoApplicants.filter(
+  const analyzed = applicants.filter(
     (item) => item.ai_match_score != null,
   ).length;
+
+  if (loading) {
+    return <CandidatesLoading />;
+  }
+
+  if (error) {
+    return <CandidatesError message={error} />;
+  }
 
   return (
     <div className="space-y-6">
@@ -87,20 +147,22 @@ export function CandidatesPage() {
             </h1>
 
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-              Review every applicant from initial capture to AI
-              screening and final recruiter decision.
+              Review every applicant from initial capture
+              to AI screening and final recruiter decision.
             </p>
           </div>
 
           <div className="grid grid-cols-3 gap-3 sm:min-w-[420px]">
             <HeaderMetric
               label="Total"
-              value={demoApplicants.length}
+              value={applicants.length}
             />
+
             <HeaderMetric
               label="Pending"
               value={pendingReview}
             />
+
             <HeaderMetric
               label="Strong Match"
               value={strongMatches}
@@ -124,8 +186,8 @@ export function CandidatesPage() {
               </h2>
 
               <p className="mt-1 text-xs text-slate-500">
-                Search and filter candidates by workflow stage
-                and AI recommendation.
+                Search and filter candidates by workflow
+                stage and AI recommendation.
               </p>
             </div>
 
@@ -162,6 +224,9 @@ export function CandidatesPage() {
             </option>
             <option value="NEW">
               New
+            </option>
+            <option value="PROCESSED">
+              Processed
             </option>
             <option value="AI_ANALYZED">
               AI Analyzed
@@ -212,173 +277,195 @@ export function CandidatesPage() {
 
         {/* TABLE */}
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1040px] text-left">
-            <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.13em] text-slate-400">
-              <tr>
-                <th className="px-5 py-3.5">
-                  Candidate
-                </th>
-                <th className="px-4 py-3.5">
-                  Position
-                </th>
-                <th className="px-4 py-3.5">
-                  AI Match
-                </th>
-                <th className="px-4 py-3.5">
-                  Recommendation
-                </th>
-                <th className="px-4 py-3.5">
-                  Status
-                </th>
-                <th className="px-4 py-3.5">
-                  Applied
-                </th>
-                <th className="px-5 py-3.5 text-right">
-                  Action
-                </th>
-              </tr>
-            </thead>
+        {applicants.length > 0 ? (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1040px] text-left">
+                <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.13em] text-slate-400">
+                  <tr>
+                    <th className="px-5 py-3.5">
+                      Candidate
+                    </th>
 
-            <tbody className="divide-y divide-slate-100">
-              {filtered.map((applicant) => {
-                const job = demoJobs.find(
-                  (item) =>
-                    item.id === applicant.job_id,
-                );
+                    <th className="px-4 py-3.5">
+                      Position
+                    </th>
 
-                const initials = applicant.full_name
-                  .split(" ")
-                  .map((part) => part[0])
-                  .slice(0, 2)
-                  .join("");
+                    <th className="px-4 py-3.5">
+                      AI Match
+                    </th>
 
-                return (
-                  <tr
-                    key={applicant.id}
-                    className="group transition hover:bg-slate-50/80"
-                  >
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-                          {initials}
-                        </div>
+                    <th className="px-4 py-3.5">
+                      Recommendation
+                    </th>
 
-                        <div className="min-w-0">
+                    <th className="px-4 py-3.5">
+                      Status
+                    </th>
+
+                    <th className="px-4 py-3.5">
+                      Applied
+                    </th>
+
+                    <th className="px-5 py-3.5 text-right">
+                      Action
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100">
+                  {filtered.map((applicant) => {
+                    const job = jobs.find(
+                      (item) =>
+                        item.id === applicant.job_id,
+                    );
+
+                    const initials =
+                      applicant.full_name
+                        .split(" ")
+                        .map((part) => part[0])
+                        .slice(0, 2)
+                        .join("");
+
+                    return (
+                      <tr
+                        key={applicant.id}
+                        className="group transition hover:bg-slate-50/80"
+                      >
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                              {initials}
+                            </div>
+
+                            <div className="min-w-0">
+                              <Link
+                                to={`/admin/candidates/${applicant.id}`}
+                                className="truncate text-sm font-semibold text-slate-900 transition hover:text-violet-600"
+                              >
+                                {applicant.full_name}
+                              </Link>
+
+                              <p className="mt-0.5 truncate text-xs text-slate-400">
+                                {applicant.email}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <p className="text-sm font-medium text-slate-700">
+                            {job?.title ?? "Unassigned"}
+                          </p>
+
+                          <p className="mt-0.5 text-xs text-slate-400">
+                            {job?.department ??
+                              "No department"}
+                          </p>
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <ScoreBadge
+                            score={
+                              applicant.ai_match_score
+                            }
+                          />
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <RecommendationBadge
+                            value={
+                              applicant.ai_recommendation
+                            }
+                          />
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <StatusBadge
+                            status={applicant.status}
+                          />
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <p className="text-sm text-slate-600">
+                            {new Date(
+                              applicant.created_at,
+                            ).toLocaleDateString()}
+                          </p>
+
+                          <p className="mt-0.5 text-[11px] text-slate-400">
+                            Application received
+                          </p>
+                        </td>
+
+                        <td className="px-5 py-4 text-right">
                           <Link
                             to={`/admin/candidates/${applicant.id}`}
-                            className="truncate text-sm font-semibold text-slate-900 transition hover:text-violet-600"
+                            className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
                           >
-                            {applicant.full_name}
+                            Review
+                            <ArrowRight className="h-3.5 w-3.5" />
                           </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
 
-                          <p className="mt-0.5 truncate text-xs text-slate-400">
-                            {applicant.email}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
+            {!filtered.length && (
+              <div className="px-6 py-16 text-center">
+                <div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-slate-100 text-slate-500">
+                  <Filter className="h-5 w-5" />
+                </div>
 
-                    <td className="px-4 py-4">
-                      <p className="text-sm font-medium text-slate-700">
-                        {job?.title ?? "Unassigned"}
-                      </p>
+                <p className="mt-4 font-semibold text-slate-900">
+                  No candidates found
+                </p>
 
-                      <p className="mt-0.5 text-xs text-slate-400">
-                        {job?.department ??
-                          "No department"}
-                      </p>
-                    </td>
+                <p className="mt-1 text-sm text-slate-500">
+                  Try changing your search or filter
+                  criteria.
+                </p>
+              </div>
+            )}
 
-                    <td className="px-4 py-4">
-                      <ScoreBadge
-                        score={
-                          applicant.ai_match_score
-                        }
-                      />
-                    </td>
+            <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/60 px-5 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-4">
+                <span>
+                  {filtered.length} candidates shown
+                </span>
 
-                    <td className="px-4 py-4">
-                      <RecommendationBadge
-                        value={
-                          applicant.ai_recommendation
-                        }
-                      />
-                    </td>
+                <span className="hidden h-1 w-1 rounded-full bg-slate-300 sm:block" />
 
-                    <td className="px-4 py-4">
-                      <StatusBadge
-                        status={applicant.status}
-                      />
-                    </td>
+                <span className="hidden sm:inline">
+                  {applicants.length} total in workspace
+                </span>
+              </div>
 
-                    <td className="px-4 py-4">
-                      <p className="text-sm text-slate-600">
-                        {new Date(
-                          applicant.created_at,
-                        ).toLocaleDateString()}
-                      </p>
-
-                      <p className="mt-0.5 text-[11px] text-slate-400">
-                        Application received
-                      </p>
-                    </td>
-
-                    <td className="px-5 py-4 text-right">
-                      <Link
-                        to={`/admin/candidates/${applicant.id}`}
-                        className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
-                      >
-                        Review
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* EMPTY */}
-
-        {!filtered.length && (
-          <div className="px-6 py-16 text-center">
+              <div className="flex items-center gap-2">
+                <UserRoundCheck className="h-3.5 w-3.5 text-violet-500" />
+                Human review remains the final decision
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="px-6 py-20 text-center">
             <div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-slate-100 text-slate-500">
-              <Filter className="h-5 w-5" />
+              <Users className="h-5 w-5" />
             </div>
 
             <p className="mt-4 font-semibold text-slate-900">
-              No candidates found
+              No candidates yet
             </p>
 
             <p className="mt-1 text-sm text-slate-500">
-              Try changing your search or filter
-              criteria.
+              New applicants from the public application
+              form will appear here automatically.
             </p>
           </div>
         )}
-
-        {/* FOOTER */}
-
-        <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/60 px-5 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-4">
-            <span>
-              {filtered.length} candidates shown
-            </span>
-
-            <span className="hidden h-1 w-1 rounded-full bg-slate-300 sm:block" />
-
-            <span className="hidden sm:inline">
-              {demoApplicants.length} total in workspace
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <UserRoundCheck className="h-3.5 w-3.5 text-violet-500" />
-            Human review remains the final decision
-          </div>
-        </div>
       </section>
     </div>
   );
@@ -399,6 +486,34 @@ function HeaderMetric({
 
       <p className="mt-1 text-xl font-semibold text-white">
         {value}
+      </p>
+    </div>
+  );
+}
+
+function CandidatesLoading() {
+  return (
+    <div className="space-y-6">
+      <div className="h-44 animate-pulse rounded-2xl bg-slate-200" />
+
+      <div className="h-[520px] animate-pulse rounded-2xl bg-slate-200" />
+    </div>
+  );
+}
+
+function CandidatesError({
+  message,
+}: {
+  message: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6">
+      <p className="font-semibold text-rose-900">
+        Candidate data unavailable
+      </p>
+
+      <p className="mt-2 text-sm text-rose-700">
+        {message}
       </p>
     </div>
   );

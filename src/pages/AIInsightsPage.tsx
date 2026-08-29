@@ -8,80 +8,160 @@ import {
   UserRoundCheck,
   Users,
 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { demoApplicants } from "../data/demo";
+import { getApplicants } from "../services/dataService";
+import type { Applicant } from "../types";
 
 export function AIInsightsPage() {
-  const analyzed = demoApplicants.filter(
-    (applicant) => applicant.ai_match_score != null,
-  );
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const highMatch = analyzed.filter(
-    (applicant) => (applicant.ai_match_score ?? 0) >= 80,
-  ).length;
+  useEffect(() => {
+    let active = true;
 
-  const review = demoApplicants.filter(
-    (applicant) => applicant.ai_recommendation === "REVIEW",
-  ).length;
+    async function loadInsights() {
+      try {
+        setLoading(true);
+        setError("");
 
-  const strongMatch = demoApplicants.filter(
-    (applicant) => applicant.ai_recommendation === "STRONG_MATCH",
-  ).length;
+        const applicantData = await getApplicants();
 
-  const notQualified = demoApplicants.filter(
-    (applicant) => applicant.ai_recommendation === "NOT_QUALIFIED",
-  ).length;
+        if (!active) return;
 
-  const averageScore =
-    analyzed.length > 0
-      ? Math.round(
-          analyzed.reduce(
-            (sum, applicant) =>
-              sum + (applicant.ai_match_score ?? 0),
-            0,
-          ) / analyzed.length,
-        )
-      : 0;
+        setApplicants(applicantData);
+      } catch (err) {
+        console.error("AI insights loading error:", err);
 
-  const skills = Object.entries(
-    analyzed
-      .flatMap((applicant) => applicant.ai_skills)
-      .reduce<Record<string, number>>(
-        (map, skill) => ({
-          ...map,
-          [skill]: (map[skill] ?? 0) + 1,
-        }),
-        {},
-      ),
-  )
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 7);
+        if (!active) return;
 
-  const recommendationTotal = Math.max(
-    strongMatch + review + notQualified,
-    1,
-  );
+        setError("Unable to load AI insights from Supabase.");
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
 
-  const recommendationData = [
-    {
-      label: "Strong Match",
-      value: strongMatch,
-      percent: (strongMatch / recommendationTotal) * 100,
-      tone: "emerald",
-    },
-    {
-      label: "Review",
-      value: review,
-      percent: (review / recommendationTotal) * 100,
-      tone: "amber",
-    },
-    {
-      label: "Not Qualified",
-      value: notQualified,
-      percent: (notQualified / recommendationTotal) * 100,
-      tone: "slate",
-    },
-  ] as const;
+    loadInsights();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const insights = useMemo(() => {
+    const analyzed = applicants.filter(
+      (applicant) => applicant.ai_match_score != null,
+    );
+
+    const highMatch = analyzed.filter(
+      (applicant) => (applicant.ai_match_score ?? 0) >= 80,
+    ).length;
+
+    const review = applicants.filter(
+      (applicant) =>
+        applicant.ai_recommendation === "REVIEW",
+    ).length;
+
+    const strongMatch = applicants.filter(
+      (applicant) =>
+        applicant.ai_recommendation === "STRONG_MATCH",
+    ).length;
+
+    const notQualified = applicants.filter(
+      (applicant) =>
+        applicant.ai_recommendation === "NOT_QUALIFIED",
+    ).length;
+
+    const averageScore =
+      analyzed.length > 0
+        ? Math.round(
+            analyzed.reduce(
+              (sum, applicant) =>
+                sum + (applicant.ai_match_score ?? 0),
+              0,
+            ) / analyzed.length,
+          )
+        : 0;
+
+    const skills = Object.entries(
+      analyzed
+        .flatMap((applicant) => applicant.ai_skills ?? [])
+        .reduce<Record<string, number>>(
+          (map, skill) => ({
+            ...map,
+            [skill]: (map[skill] ?? 0) + 1,
+          }),
+          {},
+        ),
+    )
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 7);
+
+    const gaps = Object.entries(
+      analyzed
+        .flatMap((applicant) => applicant.ai_gaps ?? [])
+        .reduce<Record<string, number>>(
+          (map, gap) => ({
+            ...map,
+            [gap]: (map[gap] ?? 0) + 1,
+          }),
+          {},
+        ),
+    )
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+
+    const recommendationTotal = Math.max(
+      strongMatch + review + notQualified,
+      1,
+    );
+
+    const recommendationData = [
+      {
+        label: "Strong Match",
+        value: strongMatch,
+        percent:
+          (strongMatch / recommendationTotal) * 100,
+        tone: "emerald" as const,
+      },
+      {
+        label: "Review",
+        value: review,
+        percent:
+          (review / recommendationTotal) * 100,
+        tone: "amber" as const,
+      },
+      {
+        label: "Not Qualified",
+        value: notQualified,
+        percent:
+          (notQualified / recommendationTotal) * 100,
+        tone: "slate" as const,
+      },
+    ];
+
+    return {
+      analyzed,
+      highMatch,
+      review,
+      strongMatch,
+      averageScore,
+      skills,
+      gaps,
+      recommendationData,
+    };
+  }, [applicants]);
+
+  if (loading) {
+    return <AIInsightsLoading />;
+  }
+
+  if (error) {
+    return <AIInsightsError message={error} />;
+  }
 
   return (
     <div className="space-y-6">
@@ -111,17 +191,17 @@ export function AIInsightsPage() {
           <div className="grid grid-cols-3 gap-3">
             <HeaderMetric
               label="Analyzed"
-              value={analyzed.length}
+              value={insights.analyzed.length}
             />
 
             <HeaderMetric
               label="Strong Match"
-              value={strongMatch}
+              value={insights.strongMatch}
             />
 
             <HeaderMetric
               label="Human Review"
-              value={review}
+              value={insights.review}
             />
           </div>
         </div>
@@ -133,28 +213,28 @@ export function AIInsightsPage() {
         <MetricCard
           icon={Gauge}
           label="Average Match Score"
-          value={`${averageScore}%`}
+          value={`${insights.averageScore}%`}
           description="Across AI-analyzed candidates"
         />
 
         <MetricCard
           icon={Target}
           label="High Match Candidates"
-          value={highMatch}
+          value={insights.highMatch}
           description="Candidates scoring 80 or above"
         />
 
         <MetricCard
           icon={UserRoundCheck}
           label="Requires Human Review"
-          value={review}
+          value={insights.review}
           description="Recruiter judgment required"
         />
 
         <MetricCard
           icon={Users}
           label="Analyzed Candidates"
-          value={analyzed.length}
+          value={insights.analyzed.length}
           description="Completed AI screening"
         />
       </section>
@@ -189,48 +269,52 @@ export function AIInsightsPage() {
 
           <div className="p-5">
             <div className="space-y-5">
-              {skills.map(([skill, count], index) => {
-                const max = Math.max(
-                  ...skills.map(([, value]) => value),
-                  1,
-                );
+              {insights.skills.map(
+                ([skill, count], index) => {
+                  const max = Math.max(
+                    ...insights.skills.map(
+                      ([, value]) => value,
+                    ),
+                    1,
+                  );
 
-                const width = Math.max(
-                  (count / max) * 100,
-                  8,
-                );
+                  const width = Math.max(
+                    (count / max) * 100,
+                    8,
+                  );
 
-                return (
-                  <div key={skill}>
-                    <div className="mb-2 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className="grid h-7 w-7 place-items-center rounded-lg bg-slate-100 font-mono text-[10px] font-semibold text-slate-500">
-                          {String(index + 1).padStart(2, "0")}
-                        </span>
+                  return (
+                    <div key={skill}>
+                      <div className="mb-2 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="grid h-7 w-7 place-items-center rounded-lg bg-slate-100 font-mono text-[10px] font-semibold text-slate-500">
+                            {String(index + 1).padStart(2, "0")}
+                          </span>
 
-                        <span className="text-sm font-semibold text-slate-700">
-                          {skill}
+                          <span className="text-sm font-semibold text-slate-700">
+                            {skill}
+                          </span>
+                        </div>
+
+                        <span className="font-mono text-xs font-semibold text-slate-500">
+                          {count}
                         </span>
                       </div>
 
-                      <span className="font-mono text-xs font-semibold text-slate-500">
-                        {count}
-                      </span>
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-violet-600"
+                          style={{
+                            width: `${width}%`,
+                          }}
+                        />
+                      </div>
                     </div>
+                  );
+                },
+              )}
 
-                    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                      <div
-                        className="h-full rounded-full bg-violet-600"
-                        style={{
-                          width: `${width}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-
-              {!skills.length && (
+              {!insights.skills.length && (
                 <div className="rounded-xl border border-dashed border-slate-200 px-5 py-10 text-center">
                   <p className="text-sm font-medium text-slate-700">
                     No AI skill data yet
@@ -245,7 +329,7 @@ export function AIInsightsPage() {
           </div>
         </div>
 
-        {/* RECOMMENDATION DISTRIBUTION */}
+        {/* RECOMMENDATIONS */}
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <div className="flex items-center gap-3">
@@ -265,15 +349,17 @@ export function AIInsightsPage() {
           </div>
 
           <div className="mt-6 space-y-5">
-            {recommendationData.map((item) => (
-              <RecommendationRow
-                key={item.label}
-                label={item.label}
-                value={item.value}
-                percent={item.percent}
-                tone={item.tone}
-              />
-            ))}
+            {insights.recommendationData.map(
+              (item) => (
+                <RecommendationRow
+                  key={item.label}
+                  label={item.label}
+                  value={item.value}
+                  percent={item.percent}
+                  tone={item.tone}
+                />
+              ),
+            )}
           </div>
 
           <div className="mt-6 rounded-xl border border-violet-100 bg-violet-50 p-4">
@@ -309,37 +395,32 @@ export function AIInsightsPage() {
           </div>
 
           <div className="mt-5 space-y-3">
-            {[
-              {
-                label: "Minimum years of professional experience",
-                count: 3,
-              },
-              {
-                label: "Enterprise design-system ownership",
-                count: 2,
-              },
-              {
-                label: "Advanced infrastructure exposure",
-                count: 1,
-              },
-            ].map((gap) => (
+            {insights.gaps.map(([gap, count]) => (
               <div
-                key={gap.label}
+                key={gap}
                 className="flex items-center justify-between gap-4 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3.5"
               >
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
 
                   <p className="text-sm leading-5 text-amber-900">
-                    {gap.label}
+                    {gap}
                   </p>
                 </div>
 
                 <span className="grid h-7 min-w-7 place-items-center rounded-lg bg-white px-2 font-mono text-xs font-semibold text-amber-700">
-                  {gap.count}
+                  {count}
                 </span>
               </div>
             ))}
+
+            {!insights.gaps.length && (
+              <div className="rounded-xl border border-dashed border-slate-200 px-5 py-10 text-center">
+                <p className="text-sm text-slate-400">
+                  No candidate gap data yet.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -359,7 +440,7 @@ export function AIInsightsPage() {
           </div>
 
           <div className="mt-5 space-y-3">
-            {analyzed
+            {insights.analyzed
               .filter(
                 (applicant) =>
                   (applicant.ai_match_score ?? 0) >= 80,
@@ -371,9 +452,10 @@ export function AIInsightsPage() {
               )
               .slice(0, 4)
               .map((applicant) => (
-                <div
+                <Link
                   key={applicant.id}
-                  className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4"
+                  to={`/admin/candidates/${applicant.id}`}
+                  className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 transition hover:border-violet-200 hover:bg-violet-50/60"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-900">
@@ -394,10 +476,10 @@ export function AIInsightsPage() {
                       Match
                     </p>
                   </div>
-                </div>
+                </Link>
               ))}
 
-            {!highMatch && (
+            {!insights.highMatch && (
               <div className="rounded-xl border border-dashed border-slate-200 px-5 py-10 text-center">
                 <p className="text-sm text-slate-400">
                   No high-match candidates yet.
@@ -501,13 +583,11 @@ function RecommendationRow({
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span
-            className={`rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${badgeClass}`}
-          >
-            {label}
-          </span>
-        </div>
+        <span
+          className={`rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${badgeClass}`}
+        >
+          {label}
+        </span>
 
         <span className="font-mono text-xs font-semibold text-slate-500">
           {value}
@@ -525,6 +605,43 @@ function RecommendationRow({
           }}
         />
       </div>
+    </div>
+  );
+}
+
+function AIInsightsLoading() {
+  return (
+    <div className="space-y-6">
+      <div className="h-44 animate-pulse rounded-2xl bg-slate-200" />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div
+            key={index}
+            className="h-40 animate-pulse rounded-2xl bg-slate-200"
+          />
+        ))}
+      </div>
+
+      <div className="h-[460px] animate-pulse rounded-2xl bg-slate-200" />
+    </div>
+  );
+}
+
+function AIInsightsError({
+  message,
+}: {
+  message: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6">
+      <p className="font-semibold text-rose-900">
+        AI insight data unavailable
+      </p>
+
+      <p className="mt-2 text-sm text-rose-700">
+        {message}
+      </p>
     </div>
   );
 }

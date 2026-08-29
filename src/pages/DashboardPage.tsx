@@ -10,84 +10,157 @@ import {
   Workflow,
   XCircle,
 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { demoApplicants, demoJobs } from "../data/demo";
 import {
   RecommendationBadge,
   ScoreBadge,
   StatusBadge,
 } from "../components/ui/StatusBadge";
+import { getApplicants, getJobs } from "../services/dataService";
+import type { Applicant, Job } from "../types";
 
 export function DashboardPage() {
-  const total = demoApplicants.length;
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const pending = demoApplicants.filter(
-    (applicant) => applicant.status === "PENDING_REVIEW",
-  ).length;
+  useEffect(() => {
+    let active = true;
 
-  const approved = demoApplicants.filter(
-    (applicant) => applicant.status === "APPROVED",
-  ).length;
+    async function loadDashboard() {
+      try {
+        setLoading(true);
+        setError("");
 
-  const rejected = demoApplicants.filter(
-    (applicant) => applicant.status === "REJECTED",
-  ).length;
+        const [applicantData, jobData] = await Promise.all([
+          getApplicants(),
+          getJobs(),
+        ]);
 
-  const analyzed = demoApplicants.filter(
-    (applicant) => applicant.ai_match_score != null,
-  ).length;
+        if (!active) return;
 
-  const scores = demoApplicants
-    .map((applicant) => applicant.ai_match_score)
-    .filter((value): value is number => value != null);
+        setApplicants(applicantData);
+        setJobs(jobData);
+      } catch (err) {
+        console.error("Dashboard loading error:", err);
 
-  const avg =
-    scores.length > 0
-      ? Math.round(
-          scores.reduce((sum, score) => sum + score, 0) / scores.length,
-        )
-      : 0;
+        if (!active) return;
 
-  const openJobs = demoJobs.filter((job) => job.status === "OPEN").length;
+        setError("Unable to load dashboard data from Supabase.");
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
 
-  const strongMatches = demoApplicants.filter(
-    (applicant) => applicant.ai_recommendation === "STRONG_MATCH",
-  ).length;
+    loadDashboard();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const metrics = useMemo(() => {
+    const total = applicants.length;
+
+    const pending = applicants.filter(
+      (applicant) => applicant.status === "PENDING_REVIEW",
+    ).length;
+
+    const approved = applicants.filter(
+      (applicant) => applicant.status === "APPROVED",
+    ).length;
+
+    const rejected = applicants.filter(
+      (applicant) => applicant.status === "REJECTED",
+    ).length;
+
+    const analyzedApplicants = applicants.filter(
+      (applicant) => applicant.ai_match_score != null,
+    );
+
+    const scores = analyzedApplicants
+      .map((applicant) => applicant.ai_match_score)
+      .filter((value): value is number => value != null);
+
+    const avg =
+      scores.length > 0
+        ? Math.round(
+            scores.reduce((sum, score) => sum + score, 0) / scores.length,
+          )
+        : 0;
+
+    const openJobs = jobs.filter(
+      (job) => job.status === "OPEN",
+    ).length;
+
+    const strongMatches = applicants.filter(
+      (applicant) =>
+        applicant.ai_recommendation === "STRONG_MATCH",
+    ).length;
+
+    const gapCounts = applicants
+      .flatMap((applicant) => applicant.ai_gaps ?? [])
+      .reduce<Record<string, number>>((map, gap) => {
+        map[gap] = (map[gap] ?? 0) + 1;
+        return map;
+      }, {});
+
+    const mostCommonGap =
+      Object.entries(gapCounts).sort(
+        (a, b) => b[1] - a[1],
+      )[0]?.[0] ?? "No data";
+
+    return {
+      total,
+      pending,
+      approved,
+      rejected,
+      analyzed: analyzedApplicants.length,
+      avg,
+      openJobs,
+      strongMatches,
+      mostCommonGap,
+    };
+  }, [applicants, jobs]);
 
   const stats = [
     {
       label: "Total Applicants",
-      value: total,
+      value: metrics.total,
       description: "Across active hiring pipelines",
       icon: Users,
     },
     {
       label: "Pending Review",
-      value: pending,
+      value: metrics.pending,
       description: "Waiting for recruiter decision",
       icon: Clock3,
     },
     {
       label: "Approved",
-      value: approved,
+      value: metrics.approved,
       description: "Candidates moved forward",
       icon: CheckCircle2,
     },
     {
       label: "Rejected",
-      value: rejected,
+      value: metrics.rejected,
       description: "Final decisions recorded",
       icon: XCircle,
     },
     {
       label: "Avg AI Match",
-      value: `${avg}%`,
-      description: `${analyzed} candidates analyzed`,
+      value: `${metrics.avg}%`,
+      description: `${metrics.analyzed} candidates analyzed`,
       icon: Gauge,
     },
     {
       label: "Open Jobs",
-      value: openJobs,
+      value: metrics.openJobs,
       description: "Currently accepting applications",
       icon: BriefcaseBusiness,
     },
@@ -96,23 +169,27 @@ export function DashboardPage() {
   const pipeline = [
     {
       label: "New",
-      value: demoApplicants.filter((a) => a.status === "NEW").length,
+      value: applicants.filter(
+        (applicant) => applicant.status === "NEW",
+      ).length,
     },
     {
       label: "AI Analyzed",
-      value: demoApplicants.filter((a) => a.status === "AI_ANALYZED").length,
+      value: applicants.filter(
+        (applicant) => applicant.status === "AI_ANALYZED",
+      ).length,
     },
     {
       label: "Pending Review",
-      value: pending,
+      value: metrics.pending,
     },
     {
       label: "Approved",
-      value: approved,
+      value: metrics.approved,
     },
     {
       label: "Rejected",
-      value: rejected,
+      value: metrics.rejected,
     },
   ];
 
@@ -121,10 +198,16 @@ export function DashboardPage() {
     1,
   );
 
+  if (loading) {
+    return <DashboardLoading />;
+  }
+
+  if (error) {
+    return <DashboardError message={error} />;
+  }
+
   return (
     <div className="space-y-6">
-      {/* HERO / COMMAND HEADER */}
-
       <section className="relative overflow-hidden rounded-2xl border border-slate-800 bg-[#070b18] px-6 py-7 text-white shadow-xl shadow-slate-900/5 sm:px-7">
         <div className="pointer-events-none absolute inset-0 opacity-60 [background-image:radial-gradient(circle_at_15%_10%,rgba(124,58,237,0.30)_0,transparent_28%),radial-gradient(circle_at_88%_15%,rgba(14,165,233,0.20)_0,transparent_26%)]" />
 
@@ -152,7 +235,7 @@ export function DashboardPage() {
               </p>
 
               <p className="mt-1 text-xl font-semibold">
-                {pending}
+                {metrics.pending}
               </p>
             </div>
 
@@ -162,7 +245,7 @@ export function DashboardPage() {
               </p>
 
               <p className="mt-1 text-xl font-semibold">
-                {strongMatches}
+                {metrics.strongMatches}
               </p>
             </div>
 
@@ -176,8 +259,6 @@ export function DashboardPage() {
           </div>
         </div>
       </section>
-
-      {/* KPI GRID */}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         {stats.map(({ label, value, description, icon: Icon }) => (
@@ -208,11 +289,7 @@ export function DashboardPage() {
         ))}
       </section>
 
-      {/* MAIN GRID */}
-
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_380px]">
-        {/* RECENT CANDIDATES */}
-
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
           <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -238,110 +315,112 @@ export function DashboardPage() {
             </Link>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left">
-              <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.12em] text-slate-400">
-                <tr>
-                  <th className="px-5 py-3">
-                    Candidate
-                  </th>
-
-                  <th className="px-4 py-3">
-                    Position
-                  </th>
-
-                  <th className="px-4 py-3">
-                    AI Match
-                  </th>
-
-                  <th className="px-4 py-3">
-                    Recommendation
-                  </th>
-
-                  <th className="px-4 py-3">
-                    Status
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody className="divide-y divide-slate-100">
-                {demoApplicants.slice(0, 5).map((applicant) => {
-                  const job = demoJobs.find(
-                    (item) => item.id === applicant.job_id,
-                  );
-
-                  const initials = applicant.full_name
-                    .split(" ")
-                    .map((part) => part[0])
-                    .slice(0, 2)
-                    .join("");
-
-                  return (
-                    <tr
-                      key={applicant.id}
-                      className="transition hover:bg-slate-50/80"
-                    >
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
-                            {initials}
-                          </div>
-
-                          <div className="min-w-0">
-                            <Link
-                              to={`/admin/candidates/${applicant.id}`}
-                              className="font-semibold text-slate-900 transition hover:text-indigo-600"
-                            >
-                              {applicant.full_name}
-                            </Link>
-
-                            <p className="truncate text-xs text-slate-400">
-                              {applicant.email}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-
-                      <td className="px-4 py-4 text-sm text-slate-600">
-                        {job?.title ?? "Unassigned"}
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <ScoreBadge score={applicant.ai_match_score} />
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <RecommendationBadge
-                          value={applicant.ai_recommendation}
-                        />
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <StatusBadge status={applicant.status} />
-                      </td>
+          {applicants.length > 0 ? (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] text-left">
+                  <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.12em] text-slate-400">
+                    <tr>
+                      <th className="px-5 py-3">Candidate</th>
+                      <th className="px-4 py-3">Position</th>
+                      <th className="px-4 py-3">AI Match</th>
+                      <th className="px-4 py-3">Recommendation</th>
+                      <th className="px-4 py-3">Status</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
 
-          <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-5 py-3">
-            <p className="text-xs text-slate-400">
-              {demoApplicants.length} candidates in workspace
-            </p>
+                  <tbody className="divide-y divide-slate-100">
+                    {applicants.slice(0, 5).map((applicant) => {
+                      const job = jobs.find(
+                        (item) => item.id === applicant.job_id,
+                      );
 
-            <p className="text-xs font-medium text-slate-500">
-              Human decision required before final outcome
-            </p>
-          </div>
+                      const initials = applicant.full_name
+                        .split(" ")
+                        .map((part) => part[0])
+                        .slice(0, 2)
+                        .join("");
+
+                      return (
+                        <tr
+                          key={applicant.id}
+                          className="transition hover:bg-slate-50/80"
+                        >
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
+                                {initials}
+                              </div>
+
+                              <div className="min-w-0">
+                                <Link
+                                  to={`/admin/candidates/${applicant.id}`}
+                                  className="font-semibold text-slate-900 transition hover:text-indigo-600"
+                                >
+                                  {applicant.full_name}
+                                </Link>
+
+                                <p className="truncate text-xs text-slate-400">
+                                  {applicant.email}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="px-4 py-4 text-sm text-slate-600">
+                            {job?.title ?? "Unassigned"}
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <ScoreBadge
+                              score={applicant.ai_match_score}
+                            />
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <RecommendationBadge
+                              value={applicant.ai_recommendation}
+                            />
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <StatusBadge
+                              status={applicant.status}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-5 py-3">
+                <p className="text-xs text-slate-400">
+                  {applicants.length} candidates in workspace
+                </p>
+
+                <p className="text-xs font-medium text-slate-500">
+                  Human decision required before final outcome
+                </p>
+              </div>
+            </>
+          ) : (
+            <div className="px-6 py-16 text-center">
+              <Users className="mx-auto h-8 w-8 text-slate-300" />
+
+              <p className="mt-4 text-sm font-semibold text-slate-800">
+                No applicants yet
+              </p>
+
+              <p className="mt-1 text-xs text-slate-400">
+                New applications will appear here automatically.
+              </p>
+            </div>
+          )}
         </div>
 
-        {/* RIGHT COLUMN */}
-
         <div className="space-y-6">
-          {/* AI INTELLIGENCE */}
-
           <div className="overflow-hidden rounded-2xl border border-violet-200 bg-gradient-to-b from-violet-50 to-white">
             <div className="border-b border-violet-100 px-5 py-5">
               <div className="flex items-center gap-2">
@@ -364,22 +443,22 @@ export function DashboardPage() {
             <div className="space-y-4 p-5">
               <Insight
                 label="Waiting for human review"
-                value={String(pending)}
+                value={String(metrics.pending)}
               />
 
               <Insight
                 label="Strong AI match candidates"
-                value={String(strongMatches)}
+                value={String(metrics.strongMatches)}
               />
 
               <Insight
                 label="Average candidate match"
-                value={`${avg}%`}
+                value={`${metrics.avg}%`}
               />
 
               <Insight
                 label="Most common candidate gap"
-                value="Experience"
+                value={metrics.mostCommonGap}
               />
 
               <div className="rounded-xl border border-violet-100 bg-violet-50 p-4">
@@ -399,8 +478,6 @@ export function DashboardPage() {
               </Link>
             </div>
           </div>
-
-          {/* PIPELINE */}
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <div className="flex items-center gap-2">
@@ -449,8 +526,6 @@ export function DashboardPage() {
           </div>
         </div>
       </section>
-
-      {/* AUTOMATION HEALTH */}
 
       <section className="grid gap-4 md:grid-cols-3">
         <OperationalCard
@@ -528,6 +603,43 @@ function OperationalCard({
 
       <p className="mt-2 text-xs leading-5 text-slate-500">
         {description}
+      </p>
+    </div>
+  );
+}
+
+function DashboardLoading() {
+  return (
+    <div className="space-y-6">
+      <div className="h-48 animate-pulse rounded-2xl bg-slate-200" />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div
+            key={index}
+            className="h-40 animate-pulse rounded-2xl bg-slate-200"
+          />
+        ))}
+      </div>
+
+      <div className="h-96 animate-pulse rounded-2xl bg-slate-200" />
+    </div>
+  );
+}
+
+function DashboardError({
+  message,
+}: {
+  message: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6">
+      <p className="font-semibold text-rose-900">
+        Dashboard data unavailable
+      </p>
+
+      <p className="mt-2 text-sm text-rose-700">
+        {message}
       </p>
     </div>
   );

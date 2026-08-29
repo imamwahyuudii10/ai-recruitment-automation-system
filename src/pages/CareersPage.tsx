@@ -21,25 +21,26 @@ import {
 import {
   ChangeEvent,
   FormEvent,
+  useEffect,
   useMemo,
   useState,
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { demoJobs } from "../data/demo";
 import {
   ApplicationSubmissionError,
   submitApplication,
 } from "../services/applicationService";
+import { getJobs } from "../services/dataService";
+import type { Job } from "../types";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 export function CareersPage() {
   const navigate = useNavigate();
 
-  const openJobs = useMemo(
-    () => demoJobs.filter((job) => job.status === "OPEN"),
-    [],
-  );
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [jobsError, setJobsError] = useState("");
 
   const [query, setQuery] = useState("");
   const [department, setDepartment] = useState("ALL");
@@ -48,17 +49,71 @@ export function CareersPage() {
     fullName: "",
     email: "",
     phone: "",
-    jobId: openJobs[0]?.id ?? "",
+    jobId: "",
   });
 
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [applicationError, setApplicationError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const departments = [
-    "ALL",
-    ...Array.from(new Set(openJobs.map((job) => job.department))),
-  ];
+  useEffect(() => {
+    let active = true;
+
+    async function loadJobs() {
+      try {
+        setJobsLoading(true);
+        setJobsError("");
+
+        const data = await getJobs();
+
+        if (!active) return;
+
+        setJobs(data);
+      } catch (error) {
+        console.error("Careers jobs loading error:", error);
+
+        if (!active) return;
+
+        setJobsError(
+          "Unable to load available positions. Please try again later.",
+        );
+      } finally {
+        if (active) {
+          setJobsLoading(false);
+        }
+      }
+    }
+
+    loadJobs();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const openJobs = useMemo(
+    () => jobs.filter((job) => job.status === "OPEN"),
+    [jobs],
+  );
+
+  useEffect(() => {
+    if (!application.jobId && openJobs.length > 0) {
+      setApplication((current) => ({
+        ...current,
+        jobId: openJobs[0].id,
+      }));
+    }
+  }, [application.jobId, openJobs]);
+
+  const departments = useMemo(
+    () => [
+      "ALL",
+      ...Array.from(
+        new Set(openJobs.map((job) => job.department)),
+      ),
+    ],
+    [openJobs],
+  );
 
   const selectedJob = openJobs.find(
     (job) => job.id === application.jobId,
@@ -69,11 +124,17 @@ export function CareersPage() {
 
     return openJobs.filter((job) => {
       const matchesDepartment =
-        department === "ALL" || job.department === department;
+        department === "ALL" ||
+        job.department === department;
 
       const matchesQuery =
         !term ||
-        [job.title, job.department, job.description]
+        [
+          job.title,
+          job.department,
+          job.description,
+          job.requirements,
+        ]
           .join(" ")
           .toLowerCase()
           .includes(term);
@@ -87,7 +148,8 @@ export function CareersPage() {
   ) {
     setApplicationError("");
 
-    const selected = event.target.files?.[0] ?? null;
+    const selected =
+      event.target.files?.[0] ?? null;
 
     if (!selected) {
       setCvFile(null);
@@ -101,16 +163,22 @@ export function CareersPage() {
     if (!isPdf) {
       event.target.value = "";
       setCvFile(null);
-      setApplicationError("Your CV must be a PDF file.");
+
+      setApplicationError(
+        "Your CV must be a PDF file.",
+      );
+
       return;
     }
 
     if (selected.size > MAX_FILE_SIZE) {
       event.target.value = "";
       setCvFile(null);
+
       setApplicationError(
         "Please upload a PDF smaller than 5 MB.",
       );
+
       return;
     }
 
@@ -121,6 +189,7 @@ export function CareersPage() {
     event: FormEvent<HTMLFormElement>,
   ) {
     event.preventDefault();
+
     setApplicationError("");
 
     if (
@@ -132,6 +201,7 @@ export function CareersPage() {
       setApplicationError(
         "Please complete all required fields.",
       );
+
       return;
     }
 
@@ -139,6 +209,7 @@ export function CareersPage() {
       setApplicationError(
         "Please choose an available position.",
       );
+
       return;
     }
 
@@ -146,6 +217,7 @@ export function CareersPage() {
       setApplicationError(
         "Please attach your CV as a PDF.",
       );
+
       return;
     }
 
@@ -164,22 +236,27 @@ export function CareersPage() {
         state: {
           applicantId: result.applicant_id,
           jobTitle: selectedJob.title,
-          candidateName: application.fullName.trim(),
+          candidateName:
+            application.fullName.trim(),
         },
       });
     } catch (error) {
       if (
-        error instanceof ApplicationSubmissionError &&
+        error instanceof
+          ApplicationSubmissionError &&
         error.code === "DUPLICATE_APPLICATION"
       ) {
         setApplicationError(
           "You have already applied for this position.",
         );
       } else if (
-        error instanceof ApplicationSubmissionError &&
+        error instanceof
+          ApplicationSubmissionError &&
         error.errors?.length
       ) {
-        setApplicationError(error.errors.join(" "));
+        setApplicationError(
+          error.errors.join(" "),
+        );
       } else {
         setApplicationError(
           error instanceof Error
@@ -194,10 +271,19 @@ export function CareersPage() {
 
   return (
     <>
-      <section className="relative overflow-hidden border-b border-slate-800 bg-[#050816] text-white">
+      {/* =====================================================
+          HERO + APPLICATION FORM
+      ====================================================== */}
+
+      <section
+        id="top"
+        className="relative overflow-hidden border-b border-slate-800 bg-[#050816] text-white"
+      >
         <div className="absolute inset-0 opacity-50 [background-image:radial-gradient(circle_at_18%_12%,rgba(99,102,241,0.42)_0,transparent_30%),radial-gradient(circle_at_82%_6%,rgba(14,165,233,0.30)_0,transparent_28%)]" />
 
         <div className="relative mx-auto grid max-w-7xl gap-12 px-5 py-14 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-center lg:px-8 lg:py-20">
+          {/* HERO COPY */}
+
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-3 py-1.5 text-xs font-semibold text-violet-200">
               <Sparkles className="h-3.5 w-3.5" />
@@ -206,6 +292,7 @@ export function CareersPage() {
 
             <h1 className="mt-6 text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
               Apply once.
+
               <span className="block text-violet-300">
                 Let the workflow do the rest.
               </span>
@@ -243,6 +330,8 @@ export function CareersPage() {
             </div>
           </div>
 
+          {/* APPLICATION FORM */}
+
           <form
             onSubmit={handleApplicationSubmit}
             className="rounded-2xl border border-white/10 bg-white/[0.06] p-5 shadow-2xl shadow-black/20 backdrop-blur sm:p-6"
@@ -252,9 +341,11 @@ export function CareersPage() {
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-300">
                   Start your application
                 </p>
+
                 <h2 className="mt-2 text-xl font-semibold">
                   Apply in one step
                 </h2>
+
                 <p className="mt-1 text-sm leading-6 text-slate-400">
                   Complete the form and upload your latest CV.
                 </p>
@@ -306,6 +397,8 @@ export function CareersPage() {
                 autoComplete="tel"
               />
 
+              {/* REAL SUPABASE JOBS */}
+
               <label className="block">
                 <span className="text-xs font-semibold text-slate-300">
                   Position
@@ -314,25 +407,51 @@ export function CareersPage() {
                 <select
                   required
                   value={application.jobId}
+                  disabled={
+                    jobsLoading ||
+                    !openJobs.length
+                  }
                   onChange={(event) =>
                     setApplication((current) => ({
                       ...current,
                       jobId: event.target.value,
                     }))
                   }
-                  className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 text-sm text-white outline-none transition focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10"
+                  className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 text-sm text-white outline-none transition focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {openJobs.map((job) => (
-                    <option
-                      key={job.id}
-                      value={job.id}
-                    >
-                      {job.title}
+                  {jobsLoading && (
+                    <option value="">
+                      Loading positions...
                     </option>
-                  ))}
+                  )}
+
+                  {!jobsLoading &&
+                    !openJobs.length && (
+                      <option value="">
+                        No open positions
+                      </option>
+                    )}
+
+                  {!jobsLoading &&
+                    openJobs.map((job) => (
+                      <option
+                        key={job.id}
+                        value={job.id}
+                      >
+                        {job.title}
+                      </option>
+                    ))}
                 </select>
+
+                {jobsError && (
+                  <p className="mt-2 text-xs text-rose-300">
+                    {jobsError}
+                  </p>
+                )}
               </label>
             </div>
+
+            {/* CV UPLOAD */}
 
             <label className="mt-4 flex cursor-pointer items-center gap-4 rounded-xl border border-dashed border-white/15 bg-slate-950/40 p-4 transition hover:border-violet-400/50 hover:bg-slate-950/60">
               <input
@@ -356,29 +475,44 @@ export function CareersPage() {
                     ? cvFile.name
                     : "Upload CV / Resume"}
                 </p>
+
                 <p className="mt-1 text-xs text-slate-400">
                   {cvFile
-                    ? `${(cvFile.size / 1024).toFixed(0)} KB · PDF ready`
+                    ? `${(
+                        cvFile.size / 1024
+                      ).toFixed(
+                        0,
+                      )} KB · PDF ready`
                     : "PDF only · maximum 5 MB"}
                 </p>
               </div>
             </label>
 
+            {/* APPLICATION ERROR */}
+
             {applicationError && (
               <div className="mt-4 flex gap-3 rounded-lg border border-rose-400/20 bg-rose-400/10 p-3 text-sm text-rose-200">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+
                 <p>{applicationError}</p>
               </div>
             )}
 
+            {/* SUBMIT */}
+
             <button
               type="submit"
-              disabled={submitting || !openJobs.length}
+              disabled={
+                submitting ||
+                jobsLoading ||
+                !openJobs.length
+              }
               className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-white px-5 text-sm font-semibold text-slate-950 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting
                 ? "Submitting application…"
                 : "Submit application"}
+
               {!submitting && (
                 <ArrowRight className="h-4 w-4" />
               )}
@@ -391,27 +525,51 @@ export function CareersPage() {
           </form>
         </div>
 
+        {/* HERO METRICS */}
+
         <div className="relative border-t border-white/10">
           <div className="mx-auto grid max-w-7xl gap-6 px-5 py-6 sm:grid-cols-2 sm:px-6 lg:grid-cols-4 lg:px-8">
-            <Metric value="Seconds" label="Application capture" />
-            <Metric value="AI-assisted" label="CV screening" />
-            <Metric value="Human-led" label="Final decisions" />
-            <Metric value="Automated" label="Candidate updates" />
+            <Metric
+              value="Seconds"
+              label="Application capture"
+            />
+
+            <Metric
+              value="AI-assisted"
+              label="CV screening"
+            />
+
+            <Metric
+              value="Human-led"
+              label="Final decisions"
+            />
+
+            <Metric
+              value="Automated"
+              label="Candidate updates"
+            />
           </div>
         </div>
       </section>
+
+      {/* =====================================================
+          HOW IT WORKS
+      ====================================================== */}
 
       <section
         id="how-it-works"
         className="border-b border-slate-200 bg-white"
       >
         <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
-          <SectionEyebrow>How it works</SectionEyebrow>
+          <SectionEyebrow>
+            How it works
+          </SectionEyebrow>
 
           <div className="mt-3 max-w-2xl">
             <h2 className="text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
               From application to recruiter decision.
             </h2>
+
             <p className="mt-3 text-sm leading-6 text-slate-600">
               One connected workflow handles the repetitive
               steps while recruiters keep control of the
@@ -426,18 +584,21 @@ export function CareersPage() {
               title="Apply"
               text="Candidate submits details and a PDF resume."
             />
+
             <ProcessStep
               number="02"
               icon={FileSearch}
               title="Process CV"
               text="n8n retrieves, extracts, and normalizes resume data."
             />
+
             <ProcessStep
               number="03"
               icon={Bot}
               title="AI screening"
               text="Gemini evaluates fit, skills, strengths, and gaps."
             />
+
             <ProcessStep
               number="04"
               icon={UserRoundCheck}
@@ -445,6 +606,7 @@ export function CareersPage() {
               text="Recruiter reviews the evidence and decides."
               highlighted
             />
+
             <ProcessStep
               number="05"
               icon={Mail}
@@ -455,6 +617,10 @@ export function CareersPage() {
         </div>
       </section>
 
+      {/* =====================================================
+          AI INTELLIGENCE
+      ====================================================== */}
+
       <section className="overflow-hidden bg-[#070b18] text-white">
         <div className="mx-auto grid max-w-7xl gap-12 px-5 py-16 sm:px-6 lg:grid-cols-2 lg:items-center lg:px-8 lg:py-24">
           <div>
@@ -464,6 +630,7 @@ export function CareersPage() {
 
             <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
               AI does the analysis.
+
               <span className="block text-violet-300">
                 Recruiters stay in control.
               </span>
@@ -484,12 +651,15 @@ export function CareersPage() {
             </div>
           </div>
 
+          {/* DEMO AI CARD */}
+
           <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-2xl shadow-black/20">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <div>
                 <p className="text-xs text-slate-400">
                   Candidate analysis
                 </p>
+
                 <p className="mt-1 font-semibold">
                   Backend Engineer
                 </p>
@@ -505,6 +675,7 @@ export function CareersPage() {
                 <p className="font-mono text-5xl font-semibold">
                   92
                 </p>
+
                 <p className="mt-1 text-xs text-slate-400">
                   AI Match Score
                 </p>
@@ -515,14 +686,17 @@ export function CareersPage() {
                   label="Technical skills"
                   value={94}
                 />
+
                 <InsightBar
                   label="Role relevance"
                   value={88}
                 />
+
                 <InsightBar
                   label="Experience"
                   value={82}
                 />
+
                 <InsightBar
                   label="Requirements"
                   value={91}
@@ -535,10 +709,12 @@ export function CareersPage() {
                 label="Skills"
                 value="Node.js · PostgreSQL · REST"
               />
+
               <MiniInsight
                 label="Strength"
                 value="Backend API architecture"
               />
+
               <MiniInsight
                 label="Gap"
                 value="Enterprise scale exposure"
@@ -548,15 +724,21 @@ export function CareersPage() {
         </div>
       </section>
 
+      {/* =====================================================
+          RECRUITER OPERATIONS PREVIEW
+      ====================================================== */}
+
       <section className="border-b border-slate-200 bg-slate-50">
         <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
           <div className="mx-auto max-w-2xl text-center">
             <SectionEyebrow>
               Recruiter operations
             </SectionEyebrow>
+
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
               One dashboard for the full hiring pipeline.
             </h2>
+
             <p className="mt-3 text-sm leading-6 text-slate-600">
               Recruiters can monitor candidates, AI analysis,
               hiring status, jobs, and activity from one
@@ -569,6 +751,7 @@ export function CareersPage() {
               <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
               <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
               <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
+
               <p className="ml-2 text-xs text-slate-400">
                 Hireloop · Recruitment Overview
               </p>
@@ -580,47 +763,74 @@ export function CareersPage() {
                 value="128"
                 label="Applicants"
               />
+
               <DashboardStat
                 icon={Gauge}
                 value="76%"
                 label="Avg. AI Match"
               />
+
               <DashboardStat
                 icon={UserRoundCheck}
                 value="14"
                 label="Pending Review"
               />
+
               <DashboardStat
                 icon={BriefcaseBusiness}
-                value="6"
+                value={String(openJobs.length)}
                 label="Open Jobs"
               />
             </div>
 
             <div className="mx-5 mb-5 overflow-hidden rounded-xl border border-slate-200">
               {[
-                ["Ahmad Fauzan", "Backend Engineer", "75", "REVIEW", "PENDING REVIEW"],
-                ["Sarah Wijaya", "Backend Engineer", "92", "STRONG MATCH", "APPROVED"],
-                ["Rizky Pratama", "Frontend Engineer", "84", "STRONG MATCH", "AI ANALYZED"],
+                [
+                  "Ahmad Fauzan",
+                  "Backend Engineer",
+                  "75",
+                  "REVIEW",
+                  "PENDING REVIEW",
+                ],
+                [
+                  "Sarah Wijaya",
+                  "Backend Engineer",
+                  "92",
+                  "STRONG MATCH",
+                  "APPROVED",
+                ],
+                [
+                  "Rizky Pratama",
+                  "Frontend Engineer",
+                  "84",
+                  "STRONG MATCH",
+                  "AI ANALYZED",
+                ],
               ].map((row, index) => (
                 <div
                   key={row[0]}
                   className={`grid gap-3 px-4 py-4 text-xs sm:grid-cols-[1.4fr_1.2fr_.5fr_1fr_1fr] sm:items-center ${
-                    index ? "border-t border-slate-100" : ""
+                    index
+                      ? "border-t border-slate-100"
+                      : ""
                   }`}
                 >
                   <span className="font-semibold text-slate-900">
                     {row[0]}
                   </span>
+
                   <span className="text-slate-500">
                     {row[1]}
                   </span>
+
                   <span className="font-mono font-semibold">
                     {row[2]}
                   </span>
+
                   <span className="text-slate-600">
                     {row[3]}
                   </span>
+
                   <span className="text-slate-500">
                     {row[4]}
                   </span>
@@ -641,15 +851,21 @@ export function CareersPage() {
         </div>
       </section>
 
+      {/* =====================================================
+          ARCHITECTURE
+      ====================================================== */}
+
       <section className="bg-white">
         <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
           <div className="mx-auto max-w-2xl text-center">
             <SectionEyebrow>
               Automation architecture
             </SectionEyebrow>
+
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
               One connected recruitment workflow.
             </h2>
+
             <p className="mt-3 text-sm leading-6 text-slate-600">
               Candidate experience, automation, AI, storage,
               recruiter review, and communication work as one
@@ -663,21 +879,25 @@ export function CareersPage() {
               title="Capture"
               text="React application form"
             />
+
             <ArchitectureCard
               icon={Workflow}
               title="Automate"
               text="n8n workflow engine"
             />
+
             <ArchitectureCard
               icon={Database}
               title="Store"
               text="Supabase + PostgreSQL"
             />
+
             <ArchitectureCard
               icon={Bot}
               title="Analyze"
               text="Gemini candidate intelligence"
             />
+
             <ArchitectureCard
               icon={Mail}
               title="Respond"
@@ -686,6 +906,10 @@ export function CareersPage() {
           </div>
         </div>
       </section>
+
+      {/* =====================================================
+          OPEN ROLES — REAL SUPABASE JOBS
+      ====================================================== */}
 
       <section
         id="open-roles"
@@ -697,9 +921,11 @@ export function CareersPage() {
               <SectionEyebrow>
                 Open positions
               </SectionEyebrow>
+
               <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
                 Find your next role
               </h2>
+
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
                 Explore current opportunities or apply directly
                 from the form at the top of this page.
@@ -707,13 +933,18 @@ export function CareersPage() {
             </div>
 
             <p className="text-sm text-slate-500">
-              {openJobs.length} open roles
+              {jobsLoading
+                ? "Loading roles..."
+                : `${openJobs.length} open roles`}
             </p>
           </div>
+
+          {/* FILTER */}
 
           <div className="mt-8 grid gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[1fr_220px]">
             <label className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
               <input
                 value={query}
                 onChange={(event) =>
@@ -744,86 +975,135 @@ export function CareersPage() {
             </select>
           </div>
 
-          <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white">
-            {filtered.length ? (
-              filtered.map((job, index) => (
-                <article
-                  key={job.id}
-                  className={`grid gap-5 px-5 py-6 transition hover:bg-slate-50 sm:px-6 md:grid-cols-[1fr_auto] md:items-center ${
-                    index
-                      ? "border-t border-slate-200"
-                      : ""
-                  }`}
-                >
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-lg font-semibold text-slate-950">
-                        {job.title}
-                      </h3>
+          {/* LOADING */}
 
-                      <span className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                        {job.department}
-                      </span>
-                    </div>
+          {jobsLoading && (
+            <div className="mt-6 space-y-3">
+              {Array.from({
+                length: 3,
+              }).map((_, index) => (
+                <div
+                  key={index}
+                  className="h-32 animate-pulse rounded-xl border border-slate-200 bg-white"
+                />
+              ))}
+            </div>
+          )}
 
-                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                      {job.description}
-                    </p>
+          {/* JOB ERROR */}
 
-                    <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
-                      <span className="inline-flex items-center gap-1.5">
-                        <MapPin className="h-3.5 w-3.5" />
-                        Remote friendly
-                      </span>
+          {!jobsLoading && jobsError && (
+            <div className="mt-6 rounded-xl border border-rose-200 bg-rose-50 p-6">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />
 
-                      <span className="inline-flex items-center gap-1.5">
-                        <BriefcaseBusiness className="h-3.5 w-3.5" />
-                        Full-time
-                      </span>
-                    </div>
-                  </div>
+                <div>
+                  <p className="font-semibold text-rose-900">
+                    Positions unavailable
+                  </p>
 
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setApplication((current) => ({
-                          ...current,
-                          jobId: job.id,
-                        }));
-                        window.scrollTo({
-                          top: 0,
-                          behavior: "smooth",
-                        });
-                      }}
-                      className="inline-flex h-10 items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800"
-                    >
-                      Apply now
-                    </button>
-
-                    <Link
-                      to={`/careers/${job.id}`}
-                      className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-slate-300 hover:bg-slate-50"
-                    >
-                      View role
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  </div>
-                </article>
-              ))
-            ) : (
-              <div className="px-6 py-16 text-center">
-                <p className="font-medium text-slate-800">
-                  No matching roles found
-                </p>
-                <p className="mt-1 text-sm text-slate-500">
-                  Try a different keyword or department.
-                </p>
+                  <p className="mt-1 text-sm text-rose-700">
+                    {jobsError}
+                  </p>
+                </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* REAL JOB LIST */}
+
+          {!jobsLoading && !jobsError && (
+            <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white">
+              {filtered.length ? (
+                filtered.map((job, index) => (
+                  <article
+                    key={job.id}
+                    className={`grid gap-5 px-5 py-6 transition hover:bg-slate-50 sm:px-6 md:grid-cols-[1fr_auto] md:items-center ${
+                      index
+                        ? "border-t border-slate-200"
+                        : ""
+                    }`}
+                  >
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-lg font-semibold text-slate-950">
+                          {job.title}
+                        </h3>
+
+                        <span className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                          {job.department}
+                        </span>
+                      </div>
+
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                        {job.description}
+                      </p>
+
+                      <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
+                        <span className="inline-flex items-center gap-1.5">
+                          <MapPin className="h-3.5 w-3.5" />
+                          Remote friendly
+                        </span>
+
+                        <span className="inline-flex items-center gap-1.5">
+                          <BriefcaseBusiness className="h-3.5 w-3.5" />
+                          Full-time
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setApplication(
+                            (current) => ({
+                              ...current,
+                              jobId: job.id,
+                            }),
+                          );
+
+                          window.scrollTo({
+                            top: 0,
+                            behavior: "smooth",
+                          });
+                        }}
+                        className="inline-flex h-10 items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800"
+                      >
+                        Apply now
+                      </button>
+
+                      <Link
+                        to={`/careers/${job.id}`}
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-slate-300 hover:bg-slate-50"
+                      >
+                        View role
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="px-6 py-16 text-center">
+                  <BriefcaseBusiness className="mx-auto h-8 w-8 text-slate-300" />
+
+                  <p className="mt-4 font-medium text-slate-800">
+                    No matching roles found
+                  </p>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    Try a different keyword or department.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </section>
+
+      {/* =====================================================
+          FINAL CTA
+      ====================================================== */}
 
       <section className="bg-[#050816] text-white">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 px-5 py-14 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
@@ -831,9 +1111,11 @@ export function CareersPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">
               Portfolio demo
             </p>
+
             <h2 className="mt-2 text-2xl font-semibold">
               See both sides of the hiring system.
             </h2>
+
             <p className="mt-2 text-sm text-slate-400">
               Apply as a candidate, then open the recruiter
               workspace to review the hiring pipeline.
@@ -845,6 +1127,7 @@ export function CareersPage() {
               href="#top"
               onClick={(event) => {
                 event.preventDefault();
+
                 window.scrollTo({
                   top: 0,
                   behavior: "smooth",
@@ -870,6 +1153,10 @@ export function CareersPage() {
   );
 }
 
+/* =====================================================
+   DARK FIELD
+===================================================== */
+
 function DarkField({
   label,
   value,
@@ -890,6 +1177,7 @@ function DarkField({
       <span className="text-xs font-semibold text-slate-300">
         {label}
       </span>
+
       <input
         required
         type={type}
@@ -905,7 +1193,15 @@ function DarkField({
   );
 }
 
-function HeroCheck({ text }: { text: string }) {
+/* =====================================================
+   HERO CHECK
+===================================================== */
+
+function HeroCheck({
+  text,
+}: {
+  text: string;
+}) {
   return (
     <span className="inline-flex items-center gap-2">
       <CheckCircle2 className="h-4 w-4 text-emerald-300" />
@@ -913,6 +1209,10 @@ function HeroCheck({ text }: { text: string }) {
     </span>
   );
 }
+
+/* =====================================================
+   METRIC
+===================================================== */
 
 function Metric({
   value,
@@ -926,12 +1226,17 @@ function Metric({
       <p className="text-sm font-semibold text-white">
         {value}
       </p>
+
       <p className="mt-1 text-xs text-slate-500">
         {label}
       </p>
     </div>
   );
 }
+
+/* =====================================================
+   SECTION EYEBROW
+===================================================== */
 
 function SectionEyebrow({
   children,
@@ -943,13 +1248,19 @@ function SectionEyebrow({
   return (
     <p
       className={`text-xs font-semibold uppercase tracking-[0.18em] ${
-        dark ? "text-violet-300" : "text-indigo-600"
+        dark
+          ? "text-violet-300"
+          : "text-indigo-600"
       }`}
     >
       {children}
     </p>
   );
 }
+
+/* =====================================================
+   PROCESS STEP
+===================================================== */
 
 function ProcessStep({
   number,
@@ -982,6 +1293,7 @@ function ProcessStep({
         >
           <Icon className="h-4 w-4" />
         </div>
+
         <span className="font-mono text-xs text-slate-400">
           {number}
         </span>
@@ -990,6 +1302,7 @@ function ProcessStep({
       <h3 className="mt-5 text-sm font-semibold text-slate-950">
         {title}
       </h3>
+
       <p className="mt-2 text-xs leading-5 text-slate-600">
         {text}
       </p>
@@ -997,7 +1310,15 @@ function ProcessStep({
   );
 }
 
-function FeatureLine({ text }: { text: string }) {
+/* =====================================================
+   FEATURE LINE
+===================================================== */
+
+function FeatureLine({
+  text,
+}: {
+  text: string;
+}) {
   return (
     <div className="flex items-center gap-3 text-sm text-slate-300">
       <CheckCircle2 className="h-4 w-4 text-violet-300" />
@@ -1005,6 +1326,10 @@ function FeatureLine({ text }: { text: string }) {
     </div>
   );
 }
+
+/* =====================================================
+   INSIGHT BAR
+===================================================== */
 
 function InsightBar({
   label,
@@ -1019,19 +1344,27 @@ function InsightBar({
         <span className="text-slate-400">
           {label}
         </span>
+
         <span className="font-mono text-slate-200">
           {value}%
         </span>
       </div>
+
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
         <div
           className="h-full rounded-full bg-violet-400"
-          style={{ width: `${value}%` }}
+          style={{
+            width: `${value}%`,
+          }}
         />
       </div>
     </div>
   );
 }
+
+/* =====================================================
+   MINI INSIGHT
+===================================================== */
 
 function MiniInsight({
   label,
@@ -1045,12 +1378,17 @@ function MiniInsight({
       <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
         {label}
       </p>
+
       <p className="mt-2 text-xs leading-5 text-slate-300">
         {value}
       </p>
     </div>
   );
 }
+
+/* =====================================================
+   DASHBOARD STAT
+===================================================== */
 
 function DashboardStat({
   icon: Icon,
@@ -1064,15 +1402,21 @@ function DashboardStat({
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
       <Icon className="h-4 w-4 text-slate-500" />
+
       <p className="mt-4 text-2xl font-semibold text-slate-950">
         {value}
       </p>
+
       <p className="mt-1 text-xs text-slate-500">
         {label}
       </p>
     </div>
   );
 }
+
+/* =====================================================
+   ARCHITECTURE CARD
+===================================================== */
 
 function ArchitectureCard({
   icon: Icon,
@@ -1088,9 +1432,11 @@ function ArchitectureCard({
       <div className="mx-auto grid h-10 w-10 place-items-center rounded-lg bg-slate-100 text-slate-700">
         <Icon className="h-4 w-4" />
       </div>
+
       <h3 className="mt-4 text-sm font-semibold text-slate-950">
         {title}
       </h3>
+
       <p className="mt-2 text-xs leading-5 text-slate-500">
         {text}
       </p>

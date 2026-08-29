@@ -6,24 +6,78 @@ import {
   Sparkles,
   Users,
 } from "lucide-react";
-import { demoApplicants, demoJobs } from "../data/demo";
-import {
-  RecommendationBadge,
-  StatusBadge,
-} from "../components/ui/StatusBadge";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { StatusBadge } from "../components/ui/StatusBadge";
+import { getApplicants, getJobs } from "../services/dataService";
+import type { Applicant, Job } from "../types";
 
 export function JobsPage() {
-  const openJobs = demoJobs.filter((job) => job.status === "OPEN").length;
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const totalApplicants = demoApplicants.length;
+  useEffect(() => {
+    let active = true;
 
-  const pendingReview = demoApplicants.filter(
-    (applicant) => applicant.status === "PENDING_REVIEW",
+    async function loadJobs() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const [jobData, applicantData] = await Promise.all([
+          getJobs(),
+          getApplicants(),
+        ]);
+
+        if (!active) return;
+
+        setJobs(jobData);
+        setApplicants(applicantData);
+      } catch (err) {
+        console.error("Jobs loading error:", err);
+
+        if (!active) return;
+
+        setError("Unable to load jobs from Supabase.");
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadJobs();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const openJobs = jobs.filter(
+    (job) => job.status === "OPEN",
   ).length;
 
-  const strongMatches = demoApplicants.filter(
-    (applicant) => applicant.ai_recommendation === "STRONG_MATCH",
+  const totalApplicants = applicants.length;
+
+  const pendingReview = applicants.filter(
+    (applicant) =>
+      applicant.status === "PENDING_REVIEW",
   ).length;
+
+  const strongMatches = applicants.filter(
+    (applicant) =>
+      applicant.ai_recommendation === "STRONG_MATCH",
+  ).length;
+
+  if (loading) {
+    return <JobsLoading />;
+  }
+
+  if (error) {
+    return <JobsError message={error} />;
+  }
 
   return (
     <div className="space-y-6">
@@ -50,10 +104,25 @@ export function JobsPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <HeaderMetric label="Open Jobs" value={openJobs} />
-            <HeaderMetric label="Applicants" value={totalApplicants} />
-            <HeaderMetric label="Pending" value={pendingReview} />
-            <HeaderMetric label="Strong Match" value={strongMatches} />
+            <HeaderMetric
+              label="Open Jobs"
+              value={openJobs}
+            />
+
+            <HeaderMetric
+              label="Applicants"
+              value={totalApplicants}
+            />
+
+            <HeaderMetric
+              label="Pending"
+              value={pendingReview}
+            />
+
+            <HeaderMetric
+              label="Strong Match"
+              value={strongMatches}
+            />
           </div>
         </div>
       </section>
@@ -83,192 +152,221 @@ export function JobsPage() {
 
       {/* JOB CARDS */}
 
-      <section className="grid gap-5 xl:grid-cols-3">
-        {demoJobs.map((job) => {
-          const applicants = demoApplicants.filter(
-            (applicant) => applicant.job_id === job.id,
-          );
+      {jobs.length > 0 ? (
+        <section className="grid gap-5 xl:grid-cols-3">
+          {jobs.map((job) => {
+            const jobApplicants = applicants.filter(
+              (applicant) =>
+                applicant.job_id === job.id,
+            );
 
-          const pending = applicants.filter(
-            (applicant) => applicant.status === "PENDING_REVIEW",
-          ).length;
+            const pending = jobApplicants.filter(
+              (applicant) =>
+                applicant.status === "PENDING_REVIEW",
+            ).length;
 
-          const approved = applicants.filter(
-            (applicant) => applicant.status === "APPROVED",
-          ).length;
+            const approved = jobApplicants.filter(
+              (applicant) =>
+                applicant.status === "APPROVED",
+            ).length;
 
-          const strong = applicants.filter(
-            (applicant) =>
-              applicant.ai_recommendation === "STRONG_MATCH",
-          ).length;
+            const strong = jobApplicants.filter(
+              (applicant) =>
+                applicant.ai_recommendation ===
+                "STRONG_MATCH",
+            ).length;
 
-          const analyzed = applicants.filter(
-            (applicant) => applicant.ai_match_score != null,
-          );
+            const analyzed = jobApplicants.filter(
+              (applicant) =>
+                applicant.ai_match_score != null,
+            );
 
-          const averageScore =
-            analyzed.length > 0
-              ? Math.round(
-                  analyzed.reduce(
-                    (sum, applicant) =>
-                      sum + (applicant.ai_match_score ?? 0),
-                    0,
-                  ) / analyzed.length,
-                )
-              : 0;
+            const averageScore =
+              analyzed.length > 0
+                ? Math.round(
+                    analyzed.reduce(
+                      (sum, applicant) =>
+                        sum +
+                        (applicant.ai_match_score ?? 0),
+                      0,
+                    ) / analyzed.length,
+                  )
+                : 0;
 
-          return (
-            <article
-              key={job.id}
-              className="group overflow-hidden rounded-2xl border border-slate-200 bg-white transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-xl hover:shadow-slate-200/50"
-            >
-              {/* CARD TOP */}
+            return (
+              <article
+                key={job.id}
+                className="group overflow-hidden rounded-2xl border border-slate-200 bg-white transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-xl hover:shadow-slate-200/50"
+              >
+                {/* CARD TOP */}
 
-              <div className="border-b border-slate-100 p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700">
-                    <BriefcaseBusiness className="h-4 w-4" />
-                  </div>
-
-                  <span
-                    className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
-                      job.status === "OPEN"
-                        ? "bg-emerald-50 text-emerald-700"
-                        : "bg-slate-100 text-slate-500"
-                    }`}
-                  >
-                    {job.status}
-                  </span>
-                </div>
-
-                <h3 className="mt-5 text-lg font-semibold text-slate-950">
-                  {job.title}
-                </h3>
-
-                <p className="mt-1 text-xs font-medium text-violet-600">
-                  {job.department}
-                </p>
-
-                <p className="mt-4 line-clamp-3 min-h-[72px] text-sm leading-6 text-slate-600">
-                  {job.description}
-                </p>
-              </div>
-
-              {/* METRICS */}
-
-              <div className="grid grid-cols-2 gap-px bg-slate-100">
-                <JobMetric
-                  icon={Users}
-                  label="Applicants"
-                  value={applicants.length}
-                />
-
-                <JobMetric
-                  icon={Clock3}
-                  label="Pending Review"
-                  value={pending}
-                />
-
-                <JobMetric
-                  icon={Sparkles}
-                  label="Strong Match"
-                  value={strong}
-                />
-
-                <JobMetric
-                  icon={CheckCircle2}
-                  label="Approved"
-                  value={approved}
-                />
-              </div>
-
-              {/* AI SCORE */}
-
-              <div className="p-5">
-                <div className="rounded-xl border border-violet-100 bg-violet-50/70 p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-500">
-                        AI Screening
-                      </p>
-
-                      <p className="mt-1 text-sm font-semibold text-slate-950">
-                        Average candidate match
-                      </p>
+                <div className="border-b border-slate-100 p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700">
+                      <BriefcaseBusiness className="h-4 w-4" />
                     </div>
 
-                    <p className="font-mono text-2xl font-semibold text-violet-700">
-                      {analyzed.length ? `${averageScore}%` : "—"}
-                    </p>
-                  </div>
-
-                  <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-violet-100">
-                    <div
-                      className="h-full rounded-full bg-violet-600"
-                      style={{
-                        width: analyzed.length
-                          ? `${averageScore}%`
-                          : "0%",
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* RECENT CANDIDATES */}
-
-                <div className="mt-5">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-700">
-                      Candidate Pipeline
-                    </p>
-
-                    <span className="text-[11px] text-slate-400">
-                      {applicants.length} total
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                        job.status === "OPEN"
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-slate-100 text-slate-500"
+                      }`}
+                    >
+                      {job.status}
                     </span>
                   </div>
 
-                  <div className="mt-3 space-y-2">
-                    {applicants.slice(0, 2).map((applicant) => (
-                      <div
-                        key={applicant.id}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-3"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-semibold text-slate-800">
-                            {applicant.full_name}
-                          </p>
+                  <h3 className="mt-5 text-lg font-semibold text-slate-950">
+                    {job.title}
+                  </h3>
 
-                          <p className="mt-0.5 truncate text-[11px] text-slate-400">
-                            {applicant.email}
-                          </p>
-                        </div>
+                  <p className="mt-1 text-xs font-medium text-violet-600">
+                    {job.department}
+                  </p>
 
-                        <StatusBadge status={applicant.status} />
-                      </div>
-                    ))}
-
-                    {!applicants.length && (
-                      <div className="rounded-lg border border-dashed border-slate-200 px-3 py-5 text-center">
-                        <p className="text-xs text-slate-400">
-                          No applicants yet.
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                  <p className="mt-4 line-clamp-3 min-h-[72px] text-sm leading-6 text-slate-600">
+                    {job.description}
+                  </p>
                 </div>
 
-                <button
-                  type="button"
-                  className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
-                >
-                  View job pipeline
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              </div>
-            </article>
-          );
-        })}
-      </section>
+                {/* METRICS */}
+
+                <div className="grid grid-cols-2 gap-px bg-slate-100">
+                  <JobMetric
+                    icon={Users}
+                    label="Applicants"
+                    value={jobApplicants.length}
+                  />
+
+                  <JobMetric
+                    icon={Clock3}
+                    label="Pending Review"
+                    value={pending}
+                  />
+
+                  <JobMetric
+                    icon={Sparkles}
+                    label="Strong Match"
+                    value={strong}
+                  />
+
+                  <JobMetric
+                    icon={CheckCircle2}
+                    label="Approved"
+                    value={approved}
+                  />
+                </div>
+
+                {/* AI SCORE */}
+
+                <div className="p-5">
+                  <div className="rounded-xl border border-violet-100 bg-violet-50/70 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-500">
+                          AI Screening
+                        </p>
+
+                        <p className="mt-1 text-sm font-semibold text-slate-950">
+                          Average candidate match
+                        </p>
+                      </div>
+
+                      <p className="font-mono text-2xl font-semibold text-violet-700">
+                        {analyzed.length
+                          ? `${averageScore}%`
+                          : "—"}
+                      </p>
+                    </div>
+
+                    <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-violet-100">
+                      <div
+                        className="h-full rounded-full bg-violet-600"
+                        style={{
+                          width: analyzed.length
+                            ? `${averageScore}%`
+                            : "0%",
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* RECENT CANDIDATES */}
+
+                  <div className="mt-5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-slate-700">
+                        Candidate Pipeline
+                      </p>
+
+                      <span className="text-[11px] text-slate-400">
+                        {jobApplicants.length} total
+                      </span>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      {jobApplicants
+                        .slice(0, 2)
+                        .map((applicant) => (
+                          <Link
+                            key={applicant.id}
+                            to={`/admin/candidates/${applicant.id}`}
+                            className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-3 transition hover:border-violet-200 hover:bg-violet-50/60"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-semibold text-slate-800">
+                                {applicant.full_name}
+                              </p>
+
+                              <p className="mt-0.5 truncate text-[11px] text-slate-400">
+                                {applicant.email}
+                              </p>
+                            </div>
+
+                            <StatusBadge
+                              status={applicant.status}
+                            />
+                          </Link>
+                        ))}
+
+                      {!jobApplicants.length && (
+                        <div className="rounded-lg border border-dashed border-slate-200 px-3 py-5 text-center">
+                          <p className="text-xs text-slate-400">
+                            No applicants yet.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <Link
+                    to="/admin/candidates"
+                    className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
+                  >
+                    View candidate pipeline
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </div>
+              </article>
+            );
+          })}
+        </section>
+      ) : (
+        <section className="rounded-2xl border border-slate-200 bg-white px-6 py-20 text-center">
+          <div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-slate-100 text-slate-500">
+            <BriefcaseBusiness className="h-5 w-5" />
+          </div>
+
+          <p className="mt-4 font-semibold text-slate-900">
+            No jobs found
+          </p>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Jobs created in Supabase will appear here.
+          </p>
+        </section>
+      )}
 
       {/* PIPELINE SUMMARY */}
 
@@ -384,6 +482,41 @@ function SummaryCard({
 
       <p className="mt-1 text-[11px] text-slate-400">
         {description}
+      </p>
+    </div>
+  );
+}
+
+function JobsLoading() {
+  return (
+    <div className="space-y-6">
+      <div className="h-44 animate-pulse rounded-2xl bg-slate-200" />
+
+      <div className="grid gap-5 xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div
+            key={index}
+            className="h-[520px] animate-pulse rounded-2xl bg-slate-200"
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function JobsError({
+  message,
+}: {
+  message: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6">
+      <p className="font-semibold text-rose-900">
+        Job data unavailable
+      </p>
+
+      <p className="mt-2 text-sm text-rose-700">
+        {message}
       </p>
     </div>
   );
